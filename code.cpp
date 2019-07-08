@@ -270,7 +270,6 @@ void decode() {
 	} else {
 		rs1 = get_bit(opt, 15, 19);
 		rs2 = get_bit(opt, 20, 24);
-		rd = get_bit(opt, 7, 11);
 		funct3 = get_bit(opt, 12, 14);
 		imm = get_imm(opt, 'B');
 		switch (funct3) {
@@ -538,7 +537,6 @@ void read() {
 	}
 }
 int main() {
-	//freopen("1.txt", "r", stdin);
 	init();
 	read();
 	doit();
