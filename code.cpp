@@ -4,14 +4,15 @@ typedef unsigned int ui;
 const int LEN = 1e6 + 5;
 
 char s[105];
-struct Inst {
+
+struct flow_register {
 	string type;
-	int rs1, rs2, rd, imm, funct3, funct7;
-	void out() {
-		cout<<type<<' ';
-		cout<<rs1<<' '<<rs2<<' '<<rd<<' '<<imm<<' '<<funct3<<' '<<funct7<<endl; 
+	int opt, npc, rs1, rs2, imm, rd, ALU, shamt;
+	flow_register() {
+		type = "";
+		opt = npc = rs1 = rs2 = imm = rd = ALU = shamt = 0;	
 	}
-};
+} FR[4];
 
 int pw[55], pc, x[55], bin[55][55], dfn;
 uint8_t mem[LEN];
@@ -123,9 +124,12 @@ int get_imm(int opt, char c) {
 	}
 	return imm;
 }
-Inst decode(int opt) {
+void decode() {
+	FR[1] = FR[0];
+	int opt = FR[1].opt;
 	string type;
-	int opcode = 0, rs1 = 0, rs2 = 0, rd = 0, imm = 0, funct3 = 0, funct7 = 0; 
+	int opcode = 0, rs1 = 0, rs2 = 0, rd = -1, imm = 0, funct3 = 0, funct7 = 0;
+	int shamt = get_bit(opt, 20, 24);
 	opcode = get_bit(opt, 0, 6);
 	if (opcode == 3) {
 		funct3 = get_bit(opt, 12, 14);
@@ -200,11 +204,9 @@ Inst decode(int opt) {
 				type = "ANDI";
 				break;
 			case 1: //SLLI
-				imm = get_bit(opt, 20, 24);
 				type = "SLLI";
 				break;
 			case 5:
-				imm = get_bit(opt, 20, 24);
 				if (funct7 == 0) { //SRLI
 					type = "SRLI";
 				} else { //SRAI
@@ -212,10 +214,6 @@ Inst decode(int opt) {
 				}
 				break;
 		}
-		switch (funct3) {
-			
-		}
-	} else if (opcode == 19) {
 	} else if (opcode == 51) {
 		rs1 = get_bit(opt, 15, 19);
 		rs2 = get_bit(opt, 20, 24);
@@ -259,11 +257,15 @@ Inst decode(int opt) {
 	} else if (opcode == 111) { //JAL
 		rd = get_bit(opt, 7, 11);
 		imm = get_imm(opt, 'J');
+		FR[1].ALU = FR[0].npc;
+		pc += imm - 4;
 		type = "JAL";
 	} else if (opcode == 103) { //JALR
 		rd = get_bit(opt, 7, 11);
 		rs1 = get_bit(opt, 15, 19);
 		imm = get_imm(opt, 'I');
+		FR[1].ALU = FR[0].npc;
+		pc = (x[rs1] + imm) & bin[1][31];
 		type = "JALR";
 	} else {
 		rs1 = get_bit(opt, 15, 19);
@@ -273,255 +275,245 @@ Inst decode(int opt) {
 		imm = get_imm(opt, 'B');
 		switch (funct3) {
 			case 0: //BEQ
+				pc += x[rs1] == x[rs2] ? imm - 4 : 0;
 				type = "BEQ";
 				break;
 			case 1: //BNE
+				pc += x[rs1] != x[rs2] ? imm - 4 : 0;
 				type = "BNE";
 				break;
 			case 4: //BLT
+				pc += x[rs1] < x[rs2] ? imm - 4 : 0;
 				type = "BLT";
 				break;
 			case 5: //BGE
+				pc += x[rs1] >= x[rs2] ? imm - 4 : 0;
 				type = "BGE";
 				break;
 			case 6: //BLTU
+				pc += uint32_t(x[rs1]) < uint32_t(x[rs2]) ? imm - 4 : 0;
 				type = "BLTU";
 				break;
 			case 7: //BGEU
+				pc += uint32_t(x[rs1]) >= uint32_t(x[rs2]) ? imm - 4 : 0;
 				type = "BGEU";
 				break;
 		}
 	}
-	return (Inst){type, rs1, rs2, rd, imm, funct3, funct7};
+	FR[1].opt = opt;
+	FR[1].rs1 = x[rs1];
+	FR[1].rs2 = x[rs2];
+	FR[1].shamt = shamt;
+	FR[1].type = type;
+	FR[1].imm = imm;
+	FR[1].rd = rd;
 }
-void LUI(const Inst &now) {
-	x[now.rd] = now.imm;
-	pc += 4;
+void LUI() {
+	FR[2].ALU = FR[1].imm;
 }
-void AUIPC(const Inst &now) {
-	x[now.rd] = pc + now.imm;
-	pc += 4;
+void AUIPC() {
+	FR[2].ALU = FR[1].npc + FR[1].imm - 4;
 }
-void JAL(const Inst &now) {
-	x[now.rd] = pc + 4;
-	pc += now.imm;
+void JAL() {}
+void JALR() {}
+void BEQ() {}
+void BNE() {}
+void BLT() {}
+void BGE() {}
+void BLTU() {}
+void BGEU() {}
+void LB() {
+	FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void JALR(const Inst &now) {
-    x[now.rd] = pc + 4;
-    pc = (x[now.rs1] + now.imm) & (-2);
+void LBU() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void BEQ(const Inst &now) {
-    if (x[now.rs1] == x[now.rs2]) {
-    	pc += now.imm;
-    } else pc += 4;
+void LH() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void BNE(const Inst &now) { 
-    if (x[now.rs1] != x[now.rs2]) {
-    	pc += now.imm;
-    } else pc += 4;
+void LHU() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void BLT(const Inst &inst) {
-    if (x[inst.rs1] < x[inst.rs2]) {
-        pc += inst.imm;
-    } else pc += 4;
+void LW() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void BGE(const Inst &now) {
-    if (x[now.rs1] >= x[now.rs2]) {
-        pc += now.imm;
-    } else pc += 4;
+void SB() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void BLTU(const Inst &now) {
-    if (uint32_t(x[now.rs1]) < uint32_t(x[now.rs2])) {
-        pc += now.imm;
-    } else pc += 4;
+void SH() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void BGEU(const Inst &now) {
-    if (uint32_t(x[now.rs1]) >= uint32_t(x[now.rs2])) {
-        pc += now.imm;
-    } else pc += 4;
+void SW() {
+	FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void LB(const Inst &now) {
-    int8_t tmp;
-    memcpy(&tmp, mem + x[now.rs1] + now.imm, 1);
-    x[now.rd] = tmp;
-    pc += 4;
+void ADDI() {
+    FR[2].ALU = FR[1].rs1 + FR[1].imm;
 }
-void LBU(const Inst &now) {
-    uint8_t tmp;
-    memcpy(&tmp, mem + x[now.rs1] + now.imm, 1);
-    x[now.rd] = tmp;
-    pc += 4;
+void SLTI() {
+    FR[2].ALU = (FR[1].rs1 < FR[1].imm);
 }
-void LH(const Inst &now) {
-    int16_t tmp;
-    memcpy(&tmp, mem + x[now.rs1] + now.imm, 2);
-    x[now.rd] = tmp;
-    pc += 4;
+void SLTIU() {
+    FR[2].ALU = (uint32_t(FR[1].rs1) < uint32_t(FR[1].imm));
 }
-void LHU(const Inst &now) {
-    uint16_t tmp;
-    memcpy(&tmp, mem + x[now.rs1] + now.imm, 2);
-    x[now.rd] = tmp;
-    pc += 4;
+void XORI() {
+    FR[2].ALU = FR[1].rs1 ^ FR[1].imm;
 }
-void LW(const Inst &now) {
-    memcpy(&x[now.rd], mem + x[now.rs1] + now.imm, 4);
-    pc += 4;
+void ORI() {
+    FR[2].ALU = FR[1].rs1 | FR[1].imm;
 }
-void SB(const Inst &now) {
-    uint8_t tmp = x[now.rs2];
-    memcpy(mem + x[now.rs1] + now.imm, &tmp, 1);
-    pc += 4;
+void ANDI() {
+	FR[2].ALU = FR[1].rs1 & FR[1].imm;
 }
-void SH(const Inst &now) {
-    uint16_t tmp = x[now.rs2];
-    memcpy(mem + x[now.rs1] + now.imm, &tmp, 2);
-    pc += 4;
+void SLLI() {
+    FR[2].ALU = FR[1].rs1 << FR[1].imm;
 }
-void SW(const Inst &now) {
-	uint32_t tmp = x[now.rs2];
-  	memcpy(mem + x[now.rs1] + now.imm, &tmp, 4);
-    pc += 4;
+void SRLI() {
+    FR[2].ALU = uint32_t(FR[1].rs1) >> uint32_t(FR[1].imm);
 }
-void ADDI(const Inst &now) {
-    x[now.rd] = x[now.rs1] + now.imm;
-    pc += 4;
+void SRAI() {
+    FR[2].ALU = FR[1].rs1 >> FR[1].imm;
 }
-void SLTI(const Inst &now) {
-    x[now.rd] = (x[now.rs1] < now.imm);
-    pc += 4;
+void ADD() {
+	FR[2].ALU = FR[1].rs1 + FR[2].rs2;
 }
-void SLTIU(const Inst &now) {
-    x[now.rd] = (uint32_t(x[now.rs1]) < uint32_t(now.imm));
-    pc += 4;
+void SUB() {
+    FR[2].ALU = FR[1].rs1 - FR[2].rs2;
 }
-void XORI(const Inst &now) {
-    x[now.rd] = x[now.rs1] ^ now.imm;
-    pc += 4;
+void SLL() {
+    FR[2].ALU = FR[1].rs1 << (FR[2].rs2 & 31);
 }
-void ORI(const Inst &now) {
-    x[now.rd] = x[now.rs1] | now.imm;
-    pc += 4;
+void SLT() {
+    FR[2].ALU = (FR[1].rs1 < FR[2].rs2);
 }
-void ANDI(const Inst &now) {
-    x[now.rd] = x[now.rs1] & now.imm;
-    pc += 4;
+void SLTU() {
+    FR[2].ALU = (uint32_t(FR[1].rs1) < uint32_t(FR[2].rs2));
 }
-void SLLI(const Inst &now) {
-    x[now.rd] = x[now.rs1] << now.imm;
-    pc += 4;
+void XOR() {
+    FR[2].ALU = FR[1].rs1 ^ FR[2].rs2;
 }
-void SRLI(const Inst &now) {
-    x[now.rd] = uint32_t(x[now.rs1]) >> uint32_t(now.imm);
-    pc += 4;
+void SRL() {
+    FR[2].ALU = uint32_t(FR[1].rs1) >> uint32_t(FR[2].rs2 & 31);
 }
-void SRAI(const Inst &now) {
-    x[now.rd] = x[now.rs1] >> now.imm;
-    pc += 4;
+void SRA() {
+    FR[2].ALU = FR[1].rs1 >> (FR[2].rs2 & 31);
 }
-void ADD(const Inst &now) {
-    x[now.rd] = x[now.rs1] + x[now.rs2];
-    pc += 4;
+void OR() {
+    FR[2].ALU = FR[1].rs1 | FR[2].rs2;
 }
-void SUB(const Inst &now) {
-    x[now.rd] = x[now.rs1] - x[now.rs2];
-    pc += 4;
+void AND() {
+    FR[2].ALU = FR[1].rs1 & FR[2].rs2;
 }
-void SLL(const Inst &now) {
-    x[now.rd] = x[now.rs1] << (x[now.rs2] & 0x1f);
-    pc += 4;
-}
-void SLT(const Inst &now) {
-    x[now.rd] = (x[now.rs1] < x[now.rs2]);
-    pc += 4;
-}
-void SLTU(const Inst &now) {
-    x[now.rd] = (uint32_t(x[now.rs1]) < uint32_t(x[now.rs2]));
-    pc += 4;
-}
-void XOR(const Inst &now) {
-    x[now.rd] = x[now.rs1] ^ x[now.rs2];
-    pc += 4;
-}
-void SRL(const Inst &now) {
-    x[now.rd] = uint32_t(x[now.rs1]) >> uint32_t((x[now.rs2] & 0x1f));
-    pc += 4;
-}
-void SRA(const Inst &now) {
-    x[now.rd] = x[now.rs1] >> (x[now.rs2] & 0x1f);
-    pc += 4;
-}
-void OR(const Inst &now) {
-    x[now.rd] = x[now.rs1] | x[now.rs2];
-    pc += 4;
-}
-void AND(const Inst &now) {
-    x[now.rd] = x[now.rs1] & x[now.rs2];
-    pc += 4;
-}
-void execute(const Inst &now) {
-	switch (fmt[now.type]) {
-		case 0 : LUI(now); break;
-		case 1 : AUIPC(now); break;
-		case 2 : JAL(now); break; 
-		case 3 : JALR(now); break;
-		case 4 : BEQ(now); break;
-		case 5 : BNE(now); break;
-		case 6 : BLT(now); break;
-		case 7 : BGE(now); break;
-		case 8 : BLTU(now); break;
-		case 9 : BGEU(now); break;
-		case 10 : LB(now); break;
-		case 11 : LH(now); break;
-		case 12 : LW(now); break;
-		case 13 : LBU(now); break;
-		case 14 : LHU(now); break;
-		case 15 : SB(now); break;
-		case 16 : SH(now); break;
-		case 17 : SW(now); break;
-		case 18 : ADDI(now); break;
-		case 19 : SLTI(now); break;
-		case 20 : SLTIU(now); break;
-		case 21 : XORI(now); break;
-		case 22 : ORI(now); break;
-		case 23 : ANDI(now); break;
-		case 24 : SLLI(now); break;
-		case 25 : SRLI(now); break;
-		case 26 : SRAI(now); break;
-		case 27 : ADD(now); break;
-		case 28 : SUB(now); break;
-		case 29 : SLL(now); break;
-		case 30 : SLT(now); break;
-		case 31 : SLTU(now); break;
-		case 32 : XOR(now); break;
-		case 33 : SRL(now); break;
-		case 34 : SRA(now); break;
-		case 35 : OR(now); break;
-		case 36 : AND(now); break;
+void execute() {
+	FR[2] = FR[1];
+	switch (fmt[FR[2].type]) {
+		case 0 : LUI(); break;
+		case 1 : AUIPC(); break;
+		case 2 : JAL(); break; 
+		case 3 : JALR(); break;
+		case 4 : BEQ(); break;
+		case 5 : BNE(); break;
+		case 6 : BLT(); break;
+		case 7 : BGE(); break;
+		case 8 : BLTU(); break;
+		case 9 : BGEU(); break;
+		case 10 : LB(); break;
+		case 11 : LH(); break;
+		case 12 : LW(); break;
+		case 13 : LBU(); break;
+		case 14 : LHU(); break;
+		case 15 : SB(); break;
+		case 16 : SH(); break;
+		case 17 : SW(); break;
+		case 18 : ADDI(); break;
+		case 19 : SLTI(); break;
+		case 20 : SLTIU(); break;
+		case 21 : XORI(); break;
+		case 22 : ORI(); break;
+		case 23 : ANDI(); break;
+		case 24 : SLLI(); break;
+		case 25 : SRLI(); break;
+		case 26 : SRAI(); break;
+		case 27 : ADD(); break;
+		case 28 : SUB(); break;
+		case 29 : SLL(); break;
+		case 30 : SLT(); break;
+		case 31 : SLTU(); break;
+		case 32 : XOR(); break;
+		case 33 : SRL(); break;
+		case 34 : SRA(); break;
+		case 35 : OR(); break;
+		case 36 : AND(); break;
 	}
 }
-int get_opt(int &opt) {
-	memcpy(&opt, mem + pc, 4);
-	//opt = (mem[pc + 3] << 24) + (mem[pc + 2] << 16) + (mem[pc + 1] << 8) + mem[pc];
+void fetch() {
+	memcpy(&FR[0].opt, mem + pc, 4);
+	FR[0].npc = pc + 4;
+	pc += 4;
+}
+void _LB() {
+    int8_t t;
+    memcpy(&t, mem + FR[2].ALU, 1);
+    FR[3].ALU = t;
+}
+void _LBU() {
+	uint8_t t;
+	memcpy(&t, mem + FR[2].ALU, 1);
+	FR[3].ALU = t;
+}
+void _LH() {
+	int16_t t;
+	memcpy(&t, mem + FR[2].ALU, 2);
+	FR[3].ALU = t;
+}
+void _LHU() {
+	int16_t t;
+	memcpy(&t, mem + FR[2].ALU, 2);
+	FR[3].ALU = t;
+}
+void _LW() {
+	int t;
+	memcpy(&t, mem + FR[2].ALU, 4);
+	FR[3].ALU = t;
+}
+void _SB() {
+	uint8_t t = FR[2].rs2;
+	memcpy(mem + FR[2].ALU, &t, 1);
+}
+void _SH() {
+	uint16_t t = FR[2].rs2;
+	memcpy(mem + FR[2].ALU, &t, 2);
+}
+void _SW() {
+	int t = FR[2].rs2;
+	memcpy(mem + FR[2].ALU, &t, 4);
+}
+void mem_acc() {
+	FR[3] = FR[2];
+	switch (fmt[FR[3].type]) {
+		case 10 : _LB(); break;
+		case 11 : _LBU(); break;
+		case 12 : _LH(); break;
+		case 13 : _LHU(); break;
+		case 14 : _LW(); break;
+		case 15 : _SB(); break;
+		case 16 : _SH(); break;
+		case 17 : _SW(); break;
+	}
+}
+void write_back() {
+	if (FR[2].rd != -1) {
+		x[FR[2].rd] = FR[3].ALU;
+	}
 }
 void doit() {
 	pc = 0;
 	while (1) {
-	//	if (++dfn > 160) break;
-		int opt;
-		get_opt(opt);
-		/*if (pc == 8) {
-			cout<<(int)mem[8]<<' '<<(int)mem[8 + 1]<<' '<<(int)mem[pc + 2]<<' '<<(int)mem[pc + 3]<<endl;
-		}*/
-		//cout<<pc<<' '<<opt<<' ';
-		if (opt == 0x00c68223) break;
-		Inst now = decode(opt);
-	//	cout<<pc<<' '<<(int)mem[8]<<' '<<(int)mem[8 + 1]<<' '<<(int)mem[8 + 2]<<' '<<(int)mem[8 + 3]<<"-----------------";
-	//	now.out(); 
-	//	cout<<pc<<' ';
-	//	for (int i = 0; i < 32; i++) cout<<x[i]<<' ';
-	//	cout<<endl;
-		execute(now);
+		fetch();
+		if (FR[0].opt == 0x00c68223) break;
+		decode();
+		execute();
+		mem_acc();
+		write_back();
 		x[0] = 0;
 	}
 	printf("%d\n", x[10] & 255);
@@ -543,12 +535,10 @@ bool get_instruction() {
 void read() {
 	while (get_instruction()) {}
 	for (int i = 0; i < pc; i++) {
-		//printf("%d ", (int)mem[i]);
 	}
 }
 int main() {
-//	freopen("1.txt", "r", stdin);
-//	freopen("out.txt", "w", stdout);
+	//freopen("1.txt", "r", stdin);
 	init();
 	read();
 	doit();
