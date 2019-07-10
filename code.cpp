@@ -128,7 +128,7 @@ void decode() {
 	FR[1] = FR[0];
 	int opt = FR[1].opt;
 	string type;
-	int opcode = 0, rs1 = 0, rs2 = 0, rd = -1, imm = 0, funct3 = 0, funct7 = 0;
+	int opcode = 0, rs1 = -1, rs2 = -1, rd = -1, imm = 0, funct3 = 0, funct7 = 0;
 	int shamt = get_bit(opt, 20, 24);
 	opcode = get_bit(opt, 0, 6);
 	if (opcode == 3) {
@@ -265,7 +265,7 @@ void decode() {
 		rs1 = get_bit(opt, 15, 19);
 		imm = get_imm(opt, 'I');
 		FR[1].ALU = FR[0].npc;
-		pc = (x[rs1] + imm) & bin[1][31];
+		pc = (x[rs1] + imm) & (-2);
 		type = "JALR";
 	} else {
 		rs1 = get_bit(opt, 15, 19);
@@ -300,8 +300,8 @@ void decode() {
 		}
 	}
 	FR[1].opt = opt;
-	FR[1].rs1 = x[rs1];
-	FR[1].rs2 = x[rs2];
+	FR[1].rs1 = rs1 == -1 ? -1 : x[rs1];
+	FR[1].rs2 = rs2 == -1 ? -1 : x[rs2];
 	FR[1].shamt = shamt;
 	FR[1].type = type;
 	FR[1].imm = imm;
@@ -373,34 +373,34 @@ void SRAI() {
     FR[2].ALU = FR[1].rs1 >> FR[1].imm;
 }
 void ADD() {
-	FR[2].ALU = FR[1].rs1 + FR[2].rs2;
+	FR[2].ALU = FR[1].rs1 + FR[1].rs2;
 }
 void SUB() {
-    FR[2].ALU = FR[1].rs1 - FR[2].rs2;
+    FR[2].ALU = FR[1].rs1 - FR[1].rs2;
 }
 void SLL() {
-    FR[2].ALU = FR[1].rs1 << (FR[2].rs2 & 31);
+    FR[2].ALU = FR[1].rs1 << (FR[1].rs2 & 31);
 }
 void SLT() {
-    FR[2].ALU = (FR[1].rs1 < FR[2].rs2);
+    FR[2].ALU = (FR[1].rs1 < FR[1].rs2);
 }
 void SLTU() {
-    FR[2].ALU = (uint32_t(FR[1].rs1) < uint32_t(FR[2].rs2));
+    FR[2].ALU = (uint32_t(FR[1].rs1) < uint32_t(FR[1].rs2));
 }
 void XOR() {
-    FR[2].ALU = FR[1].rs1 ^ FR[2].rs2;
+    FR[2].ALU = FR[1].rs1 ^ FR[1].rs2;
 }
 void SRL() {
-    FR[2].ALU = uint32_t(FR[1].rs1) >> uint32_t(FR[2].rs2 & 31);
+    FR[2].ALU = uint32_t(FR[1].rs1) >> uint32_t(FR[1].rs2 & 31);
 }
 void SRA() {
-    FR[2].ALU = FR[1].rs1 >> (FR[2].rs2 & 31);
+    FR[2].ALU = FR[1].rs1 >> (FR[1].rs2 & 31);
 }
 void OR() {
-    FR[2].ALU = FR[1].rs1 | FR[2].rs2;
+    FR[2].ALU = FR[1].rs1 | FR[1].rs2;
 }
 void AND() {
-    FR[2].ALU = FR[1].rs1 & FR[2].rs2;
+    FR[2].ALU = FR[1].rs1 & FR[1].rs2;
 }
 void execute() {
 	FR[2] = FR[1];
@@ -490,10 +490,10 @@ void mem_acc() {
 	FR[3] = FR[2];
 	switch (fmt[FR[3].type]) {
 		case 10 : _LB(); break;
-		case 11 : _LBU(); break;
-		case 12 : _LH(); break;
-		case 13 : _LHU(); break;
-		case 14 : _LW(); break;
+		case 11 : _LH(); break;
+		case 12 : _LW(); break;
+		case 13 : _LBU(); break;
+		case 14 : _LHU(); break;
 		case 15 : _SB(); break;
 		case 16 : _SH(); break;
 		case 17 : _SW(); break;
